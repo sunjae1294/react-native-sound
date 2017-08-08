@@ -122,7 +122,7 @@ https://github.com/zmxv/react-native-sound-demo
 
 ## Basic usage
 
-First you'll need to audio files to your project.
+First you'll need to add audio files to your project.
 
 - Android: Save your sound clip files under the directory `android/app/src/main/res/raw`. Note that files in this directory must be lowercase and underscored (e.g. my_file_name.mp3) and that subdirectories are not supported by Android.
 - iOS: Open Xcode and add your sound files to the project (Right-click the project and select `Add Files to [PROJECTNAME]`)
@@ -283,6 +283,20 @@ To play sound in the background, make sure to add the following to the `Info.pli
   <string>audio</string>
 </array>
 ```
+
+### `Sound.setMode(value) (iOS only)`
+
+`value` {string} Sets AVAudioSession mode, which works in conjunction with the category to determine audio mixing behavior. Parameter options: "Default", "VoiceChat", "VideoChat", "GameChat", "VideoRecording", "Measurement", "MoviePlayback", "SpokenAudio".
+
+This should be called in conjunction with `Sound.setCategory`.
+
+More info about each mode can be found in https://developer.apple.com/documentation/avfoundation/avaudiosession/audio_session_modes
+
+### `Sound.setActive(value) (iOS only)`
+
+Sets AVAudioSession as active, which is recommended on iOS to achieve seamless background playback.
+Use this method to deactivate the AVAudioSession when playback is finished in order for other apps
+to regain access to the audio stack.
 
 ## Notes
 - To minimize playback delay, you may want to preload a sound file without calling `play()` (e.g. `var s = new Sound(...);`) during app initialization. This also helps avoid a race condition where `play()` may be called before loading of the sound is complete, which results in no sound but no error because loading is still being processed.
