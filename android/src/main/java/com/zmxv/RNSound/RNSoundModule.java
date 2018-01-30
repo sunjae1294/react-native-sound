@@ -37,11 +37,20 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
   final static Object NULL = null;
   BroadcastReceiver broadcastReceiverHeadsetPlugged = null;
   String category;
+  private static final String TAG = "ReactNativeJS";
 
   public RNSoundModule(ReactApplicationContext context) {
     super(context);
     this.context = context;
     this.category = null;
+  }
+
+  private void setOnPlay(boolean isPlaying, final Integer playerKey) {
+    final ReactContext reactContext = this.context;
+    WritableMap params = Arguments.createMap();
+    params.putBoolean("isPlaying", isPlaying);
+    params.putInt("playerKey", playerKey);
+    sendEvent(reactContext, "onPlayChange", params);
   }
 
   @Override
@@ -51,6 +60,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void prepare(final String fileName, final Integer key, final ReadableMap options, final Callback callback) {
+    Log.d(TAG, "prepare called: " + fileName);
     int audioStreamType = AudioManager.STREAM_MUSIC;
     if (options.hasKey("audioStreamType")) {
       String audioStreamTypeStr = options.getString("audioStreamType");
@@ -73,17 +83,27 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
       }
     }
 
-    MediaPlayer player = createMediaPlayer(fileName);
+    MediaPlayer player = this.playerPool.get(key);
+      // player = createMediaPlayer(fileName);
+      // if (player == null) {
+      //   WritableMap e = Arguments.createMap();
+      //   e.putInt("code", -1);
+      //   e.putString("message", "resource not found");
+      //   return;
+      // }
     if (player == null) {
-      WritableMap e = Arguments.createMap();
-      e.putInt("code", -1);
-      e.putString("message", "resource not found");
-      return;
+      player = createMediaPlayer(fileName);
+      Log.d(TAG, "new player created!!!");
+      if (player == null) {
+        WritableMap e = Arguments.createMap();
+        e.putInt("code", -1);
+        e.putString("message", "resource not found");
+        return;
+      }
     }
-
     final RNSoundModule module = this;
     final int audioStreamTypeFinal = audioStreamType;
-    
+
     if (module.category != null) {
       Integer category = null;
       switch (module.category) {
@@ -104,7 +124,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
         player.setAudioStreamType(category);
       }
     }
-
+    Log.d(TAG, "prepare called: "+audioStreamTypeFinal);
     player.setAudioStreamType(audioStreamTypeFinal);
 
     player.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
@@ -114,10 +134,11 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
       public synchronized void onPrepared(MediaPlayer mp) {
         if (callbackWasCalled) return;
         callbackWasCalled = true;
-
+        Log.d(TAG, "after audio session: "+mp.getAudioSessionId());
         module.playerPool.put(key, mp);
         WritableMap props = Arguments.createMap();
         props.putDouble("duration", mp.getDuration() * .001);
+        Log.d(TAG, "prepare success!!!");
         try {
           callback.invoke(NULL, props);
         } catch(RuntimeException runtimeException) {
@@ -126,7 +147,6 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
         }
         module.context.getCurrentActivity().setVolumeControlStream(audioStreamTypeFinal);
       }
-
     });
 
     player.setOnErrorListener(new OnErrorListener() {
@@ -148,7 +168,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
         return true;
       }
     });
-
+    Log.d(TAG, "before audio session: "+player.getAudioSessionId());
     try {
       player.prepareAsync();
     } catch (IllegalStateException ignored) {
@@ -214,6 +234,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
   public void play(final Integer key, final Callback callback) {
     MediaPlayer player = this.playerPool.get(key);
     if (player == null) {
+      setOnPlay(false, key);
       callback.invoke(false);
       return;
     }
@@ -226,6 +247,7 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
       @Override
       public synchronized void onCompletion(MediaPlayer mp) {
         if (!mp.isLooping()) {
+          setOnPlay(false, key);
           if (callbackWasCalled) return;
           callbackWasCalled = true;
           try {
@@ -241,13 +263,16 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
 
       @Override
       public synchronized boolean onError(MediaPlayer mp, int what, int extra) {
+        setOnPlay(false, key);
         if (callbackWasCalled) return true;
         callbackWasCalled = true;
         callback.invoke(false);
         return true;
       }
     });
+    Log.d(TAG, "play started");
     player.start();
+    setOnPlay(true, key);
   }
 
   @ReactMethod
@@ -265,6 +290,16 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
     if (player != null && player.isPlaying()) {
       player.pause();
       player.seekTo(0);
+    }
+    callback.invoke();
+  }
+
+  @ReactMethod
+  public void hardStop(final Integer key, final Callback callback) {
+    MediaPlayer player = this.playerPool.get(key);
+    if (player != null) {
+      player.stop();
+      Log.d(TAG, "player stopped");
     }
     callback.invoke();
   }
@@ -375,16 +410,6 @@ public class RNSoundModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void enable(final Boolean enabled) {
     // no op
-  }
-
-  @ReactMethod
-  public void isPlaying(final Integer key, Promise promise) {
-    MediaPlayer player = this.playerPool.get(key);
-    if (player != null) {
-      promise.resolve(player.isPlaying());
-    } else {
-      promise.resolve(false);
-    }
   }
 
   private void sendEvent(ReactContext reactContext,

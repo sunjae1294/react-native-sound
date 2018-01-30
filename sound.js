@@ -7,7 +7,7 @@ var IsWindows = RNSound.IsWindows;
 var resolveAssetSource = require("react-native/Libraries/Image/resolveAssetSource");
 var nextKey = 0;
 
-const eventEmitter = new NativeEventEmitter(RNSound);
+var eventEmitter = new NativeEventEmitter(RNSound);
 
 function isRelativePath(path) {
   return !/^(\/|http(s?)|asset)/.test(path);
@@ -26,7 +26,32 @@ function Sound(filename, basePath, onError, options) {
     }
   }
 
+  this.registerOnPlay = function() {
+    if (this.onPlaySubscription != null) {
+      console.warn('On Play change event listener is already registered');
+      return;
+    }
+
+    if (!IsWindows) {
+      this.onPlaySubscription = eventEmitter.addListener(
+        'onPlayChange',
+        (param) => {
+          const { isPlaying, playerKey } = param;
+          if (playerKey === this._key) {
+            if (isPlaying) {
+              this._playing = true;
+            }
+            else {
+              this._playing = false;
+            }
+          }
+        },
+      );
+    }
+  }
+
   this._loaded = false;
+  this._playing = false;
   this._key = nextKey++;
   this._duration = -1;
   this._numberOfChannels = -1;
@@ -45,6 +70,7 @@ function Sound(filename, basePath, onError, options) {
     }
     if (error === null) {
       this._loaded = true;
+      this.registerOnPlay();
     }
     onError && onError(error, props);
   });
@@ -56,8 +82,17 @@ Sound.prototype.isLoaded = function() {
 
 Sound.prototype.play = function(onEnd) {
   if (this._loaded) {
+    console.log('play successfull');
     RNSound.play(this._key, (successfully) => onEnd && onEnd(successfully));
-  } else {
+    if (IsAndroid) {
+      // For Android
+      // Manually call native setSpeed() after native play() to apply current speed.
+      // Native setSpeed method should be called only if the media player is already playing.
+      // To prevent android from playing automatically when setSpeed is called.
+      RNSound.setSpeed(this._key, this._speed);
+    }
+  }
+  else {
     onEnd && onEnd(false);
   }
   return this;
@@ -65,21 +100,68 @@ Sound.prototype.play = function(onEnd) {
 
 Sound.prototype.pause = function(callback) {
   if (this._loaded) {
-    RNSound.pause(this._key, () => { callback && callback() });
+    RNSound.pause(this._key, () => {
+      this._playing = false;
+      callback && callback();
+    });
   }
   return this;
 };
 
 Sound.prototype.stop = function(callback) {
   if (this._loaded) {
-    RNSound.stop(this._key, () => { callback && callback() });
+    RNSound.stop(this._key, () => {
+      this._playing = false;
+      callback && callback();
+    });
   }
   return this;
 };
 
+Sound.prototype.hardStop = function(callback) {
+  if (IsAndroid) {
+    if (this._loaded) {
+      RNSound.hardStop(this._key, () => {
+        console.log('hardstop!!');
+        this._playing = false;
+        this._loaded = false;
+        callback && callback();
+      });
+    }
+    return this;
+  }
+};
+
+Sound.prototype.setStreamType = function(streamType, callback) {
+  if (IsAndroid) {
+    console.log('setstream type!');
+    if (!this._loaded) {
+      console.log('filename: ', this._filename, ' key: ', this._key, ' streamType: ', streamType);
+      RNSound.prepare(this._filename, this._key, streamType || {}, (error, props) => {
+        if (props) {
+          if (typeof props.duration === 'number') {
+            this._duration = props.duration;
+          }
+          if (typeof props.numberOfChannels === 'number') {
+            this._numberOfChannels = props.numberOfChannels;
+          }
+        }
+        if (error === null) {
+          this._loaded = true;
+          callback && callback();
+          console.log('prepared!!!!!!!!!!');
+        } else {
+          console.log('error preparing!!!!', error);
+        }
+      });
+    }
+  }
+}
+
 Sound.prototype.reset = function() {
   if (this._loaded && IsAndroid) {
     RNSound.reset(this._key);
+    this._playing = false;
   }
   return this;
 };
@@ -88,6 +170,12 @@ Sound.prototype.release = function() {
   if (this._loaded) {
     RNSound.release(this._key);
     this._loaded = false;
+    if (!IsWindows) {
+      if (this.onPlaySubscription != null) {
+        this.onPlaySubscription.remove();
+        this.onPlaySubscription = null;
+      }
+    }
   }
   return this;
 };
@@ -117,7 +205,7 @@ Sound.prototype.setVolume = function(value) {
 };
 
 Sound.prototype.getSystemVolume = function(callback) {
-  if(IsAndroid) {
+  if (IsAndroid) {
     RNSound.getSystemVolume(callback);
   }
   return this;
@@ -158,10 +246,17 @@ Sound.prototype.setNumberOfLoops = function(value) {
 };
 
 Sound.prototype.setSpeed = function(value) {
-  this._setSpeed = value;
+  this._speed = value;
   if (this._loaded) {
-    if (!IsWindows) {
+    if (!IsWindows && !IsAndroid) {
       RNSound.setSpeed(this._key, value);
+    } else if (IsAndroid) {
+      // For Android
+      // Call native setSpeed method only if the media player is already playing.
+      // To prevent android from playing automatically when setSpeed is called.
+      if (this._playing) {
+        RNSound.setSpeed(this._key, value);
+      }
     }
   }
   return this;
@@ -190,11 +285,7 @@ Sound.prototype.setSpeakerphoneOn = function(value) {
 };
 
 Sound.prototype.isPlaying = function() {
-  if (this._loaded) {
-    return RNSound.isPlaying(this._key);
-  } else {
-    return Promise.resolve(false);
-  }
+  return this._playing;
 };
 
 Sound.adjustStreamVolume = function(streamType, direction, flags) {
@@ -239,7 +330,6 @@ Sound.unregisterHeadsetPlugChangeListener = function() {
       this.headsetPluggedInSubscription = null;
     }
   }
-  
 }
 
 // ios only
