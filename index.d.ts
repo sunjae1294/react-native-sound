@@ -116,12 +116,6 @@ declare class Sound {
   stop(cb?: () => void): void
 
   /**
-   * Stop playback and set the seek position to 0.
-   * @param cb - Optional callback function that gets called when the sound has been stopped.
-   */
-  hardStop(cb?: () => void): void
-
-  /**
    * Reset the audio player to its uninitialized state (android only)
    */
   reset(): void

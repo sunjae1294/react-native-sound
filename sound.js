@@ -82,7 +82,6 @@ Sound.prototype.isLoaded = function() {
 
 Sound.prototype.play = function(onEnd) {
   if (this._loaded) {
-    console.log('play successfull');
     RNSound.play(this._key, (successfully) => onEnd && onEnd(successfully));
     if (IsAndroid) {
       // For Android
@@ -118,25 +117,11 @@ Sound.prototype.stop = function(callback) {
   return this;
 };
 
-Sound.prototype.hardStop = function(callback) {
-  if (IsAndroid) {
-    if (this._loaded) {
-      RNSound.hardStop(this._key, () => {
-        console.log('hardstop!!');
-        this._playing = false;
-        this._loaded = false;
-        callback && callback();
-      });
-    }
-    return this;
-  }
-};
-
 Sound.prototype.setStreamType = function(streamType, callback) {
+  // For android only.
+  // Resets current mediaPlayer, change streamType, and prepare again.
   if (IsAndroid) {
-    console.log('setstream type!');
     if (!this._loaded) {
-      console.log('filename: ', this._filename, ' key: ', this._key, ' streamType: ', streamType);
       RNSound.prepare(this._filename, this._key, streamType || {}, (error, props) => {
         if (props) {
           if (typeof props.duration === 'number') {
@@ -149,19 +134,19 @@ Sound.prototype.setStreamType = function(streamType, callback) {
         if (error === null) {
           this._loaded = true;
           callback && callback();
-          console.log('prepared!!!!!!!!!!');
-        } else {
-          console.log('error preparing!!!!', error);
         }
       });
     }
   }
 }
 
-Sound.prototype.reset = function() {
+Sound.prototype.reset = function(callback) {
   if (this._loaded && IsAndroid) {
-    RNSound.reset(this._key);
-    this._playing = false;
+    RNSound.reset(this._key, () => {
+      this._playing = false;
+      this._loaded = false;
+      callback && callback();
+    });
   }
   return this;
 };
